@@ -35,10 +35,10 @@ bo3$159b3o$159b3o$160bo$160bo$81bo78bo$79bobo77bobo$80b2o2$159bobo$
 o4bo2bo$99bo2bo4bo2bo$99bo2bo4bo2bo$100b2o6b2o$114b3o2$113bo3bo$113bo
 3bo2$114b3o3$114b3o2$113bo3bo$113bo3bo2$114b3o!)";
 
-void init() {
+void init(int bx, int by) {
     int acc = 0;
-    int x = N / 2;
-    int y = N / 2;
+    int x = bx;
+    int y = by;
     for (int i = 0; i < sizeof(gundata); i++) {
         char c = gundata[i];
         if (!c || strchr(" \n\t!", c)) continue;
@@ -48,7 +48,6 @@ void init() {
             continue;
         }
         if (!acc) acc = 1;
-        printf("%d%c\n", acc, c);
         if (c == 'b') {
             for (int o = 0; o < acc; o++) {
                 cells[x * N + y++] = 0;
@@ -60,7 +59,7 @@ void init() {
             }
         }
         if (c == '$') {
-            y = N / 2;
+            y = by;
             x += acc;
         }
         acc = 0;
@@ -76,7 +75,7 @@ void step() {
             neigh += cells[x * N + (y - 1)];
             neigh += cells[(x + 1) * N + (y + 1)];
             neigh += cells[(x + 1) * N + y];
-            neigh += cells[(x + 1) * N + (y + 1)];
+            neigh += cells[(x + 1) * N + (y - 1)];
             neigh += cells[(x - 1) * N + (y + 1)];
             neigh += cells[(x - 1) * N + y];
             neigh += cells[(x - 1) * N + (y - 1)];
@@ -106,25 +105,31 @@ void showinfo() {
     for (int x = 0; x < N; x++) {
         for (int y = 0; y < N; y++) {
             if (cells[x * N + y]) {
-                rightbound = std::max(rightbound, x);
-                leftbound = std::min(leftbound, x);
+                rightbound = std::max(rightbound, y);
+                leftbound = std::min(leftbound, y);
                 count++;
             }
         }
     }
+    // 正确输出: left=1027, right=1599, count=726
     printf("left=%d, right=%d, count=%d\n", leftbound, rightbound, count);
 }
 
 int main() {
     TICK(main);
 
-    init();
-    showinfo();
+    init(N / 2, N / 2);
+    init(N / 2 - 500, N / 2 - 500);
+    init(N / 2 + 500, N / 2 + 500);
+    init(N / 2 - 1000, N / 2 - 1000);
+    init(N / 2 + 1000, N / 2 + 1000);
     for (int times = 0; times < 1000; times++) {
         printf("step %d\n", times);
+        if (times % 100 == 0)
+            showinfo();
         step();
-    showinfo();
     }
+    showinfo();
 
     TOCK(main);
     return 0;
