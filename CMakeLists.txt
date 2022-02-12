@@ -7,3 +7,10 @@ if (NOT CMAKE_BUILD_TYPE)
 endif()
 
 add_executable(main main.cpp)
+
+find_package(OpenMP)
+if (TARGET OpenMP::OpenMP_CXX)
+    target_link_libraries(main PUBLIC OpenMP::OpenMP_CXX)
+else()
+    message(WARNING "OpenMP not found")
+endif()
