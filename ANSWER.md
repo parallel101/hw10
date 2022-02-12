@@ -2,19 +2,19 @@
 
 ```
 这里贴改进前的运行结果。
-matrix_randomize: 100s
+main: 100s
 ```
 
 # 改进后
 
 ```
 这里贴改进后的运行结果。
-matrix_randomize: 0.01s
+main: 0.01s
 ```
 
 # 加速比
 
-matrix_randomize: 10000x
+main: 10000x
 
 > 如果记录了多种优化方法，可以做表格比较
 

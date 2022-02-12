@@ -111,7 +111,7 @@ void showinfo() {
             }
         }
     }
-    // 正确输出: left=1027, right=1599, count=726
+    // 标准答案：left=1048, right=3523, count=2910
     printf("left=%d, right=%d, count=%d\n", leftbound, rightbound, count);
 }
 
@@ -123,7 +123,7 @@ int main() {
     init(N / 2 + 500, N / 2 + 500);
     init(N / 2 - 1000, N / 2 - 1000);
     init(N / 2 + 1000, N / 2 + 1000);
-    for (int times = 0; times < 1000; times++) {
+    for (int times = 0; times < 800; times++) {
         printf("step %d\n", times);
         if (times % 100 == 0)
             showinfo();
