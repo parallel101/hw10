@@ -4,12 +4,83 @@
 #include <cstdlib>
 #include <cstring>
 #include "ticktock.h"
+#include <omp.h>
+// #include "snode.h"
+#include <memory>
+#include "bate.h"
+#include <tbb/parallel_for.h>
+#include <tbb/blocked_range2d.h>
+#include <tbb/spin_mutex.h>
+#include <mutex>
+
+#include "bate.h"
+#include <tbb/spin_mutex.h>
+#include <mutex>
+#include <atomic>
+
+
+
+struct Grid {
+    static constexpr int Bshift = 8;
+    static constexpr int B = 1 << Bshift;
+    static constexpr int Bmask = B - 1;
+
+    static constexpr int B1shift = 11;
+    static constexpr int B1 = 1 << B1shift;
+    static constexpr int B1mask = B1 - 1;
+
+    struct Block {
+        char m_block[B][B];
+    };
+
+    tbb::spin_mutex m_mtx[B1][B1];
+    std::unique_ptr<Block> m_data[B1][B1];  // ~1MB
+
+    char read(int x, int y) const {
+        auto &block = m_data[(x >> Bshift) & B1mask][(y >> Bshift) & B1mask];
+        if (!block)
+            return 0;
+        return block->m_block[x & Bmask][y & Bmask];
+    }
+
+    void write(int x, int y, char value) {
+        auto &block = m_data[(x >> Bshift) & B1mask][(y >> Bshift) & B1mask];
+        if (!block) {
+            std::lock_guard _(m_mtx[(x >> Bshift) & B1mask][(y >> Bshift) & B1mask]);
+            if (!block)
+                block = std::make_unique<Block>();
+        }
+        block->m_block[x & Bmask][y & Bmask] = value;
+    }
+
+    template <class Func>
+    void foreach(Func const &func) {
+#pragma omp parallel for collapse(2)
+        for (int x1 = 0; x1 < B1; x1++) {
+            for (int y1 = 0; y1 < B1; y1++) {
+                auto const &block = m_data[x1 & B1mask][y1 & B1mask];
+                if (!block)
+                    continue;
+                int xb = x1 << B1shift;
+                int yb = y1 << B1shift;
+                for (int dx = 0; dx < B; dx++) {
+                    for (int dy = 0; dy < B; dy++) {
+                        func(xb | dx, yb | dy, block->m_block[dx][dy]);
+                    }
+                }
+            }
+        }
+    }
+};
 
 constexpr int N = 1<<12;
 
 // 任务: 改造成小彭老师说的稀疏数据结构
-std::vector<bool> cells(N * N);
-std::vector<bool> outcells(N * N);
+// std::vector<bool> cells(N * N);
+// std::vector<bool> outcells(N * N);
+Grid * cells = new Grid{};
+Grid * outcells = new Grid{};
+
 
 const char gundata[] = R"(125b3o$125bobo$125b3o6bo$125b3o5b3o$125b3o$125b3o$125bobo5b3o$125b3o$
 133bobo$133bobo2$133b3o$111b2o6b2o$110bo2bo4bo2bo$110bo2bo4bo2bo11b3o$
@@ -36,6 +107,7 @@ o4bo2bo$99bo2bo4bo2bo$99bo2bo4bo2bo$100b2o6b2o$114b3o2$113bo3bo$113bo
 3bo2$114b3o3$114b3o2$113bo3bo$113bo3bo2$114b3o!)";
 
 void init(int bx, int by) {
+
     int acc = 0;
     int x = bx;
     int y = by;
@@ -50,12 +122,12 @@ void init(int bx, int by) {
         if (!acc) acc = 1;
         if (c == 'b') {
             for (int o = 0; o < acc; o++) {
-                cells[x * N + y++] = 0;
+               cells->write(x, y++, 0);
             }
         }
         if (c == 'o') {
             for (int o = 0; o < acc; o++) {
-                cells[x * N + y++] = 1;
+                cells->write(x, y++, 1);
             }
         }
         if (c == '$') {
@@ -66,36 +138,86 @@ void init(int bx, int by) {
     }
 }
 
+
 void step() {
+   
+    tbb::parallel_for(tbb::blocked_range2d<int>(1,N-1,1,N-1),
+    [&](tbb::blocked_range2d<int> r){
+        for(int y = r.cols().begin() ; y < r.cols().end(); y++){
+            for(int x = r.rows().begin(); x < r.rows().end(); x++){
+                int neigh = 0;
+            
+            neigh += cells->read(x , y+1);
+            neigh += cells->read(x , y-1);
+
+            neigh += cells->read((x + 1) , (y + 1));
+            neigh += cells->read((x + 1) , y);
+            neigh += cells->read((x + 1) , y-1);
+            neigh += cells->read((x - 1) , y+1);
+            neigh += cells->read((x - 1) , y);
+            neigh += cells->read((x - 1) , y-1);
+            
+            if (cells->read(x , y)) {
+                if (neigh == 2 || neigh == 3) {
+                    outcells->write(x, y, 1);
+                   
+                } else {
+                    outcells->write(x, y, 0);
+                    
+                }
+            } else {
+                if (neigh == 3) {
+                    outcells->write(x, y, 1);
+                    
+                } else {
+                    outcells->write(x, y, 0);
+                    
+                }
+            }
+
+            }
+        }
+    });
+    std::swap(cells, outcells);
+}
+
+void step1() {
 #pragma omp parallel for collapse(2)
     for (int y = 1; y < N-1; y++) {
         for (int x = 1; x < N-1; x++) {
             int neigh = 0;
-            neigh += cells[x * N + (y + 1)];
-            neigh += cells[x * N + (y - 1)];
-            neigh += cells[(x + 1) * N + (y + 1)];
-            neigh += cells[(x + 1) * N + y];
-            neigh += cells[(x + 1) * N + (y - 1)];
-            neigh += cells[(x - 1) * N + (y + 1)];
-            neigh += cells[(x - 1) * N + y];
-            neigh += cells[(x - 1) * N + (y - 1)];
-            if (cells[x * N + y]) {
+            
+            neigh += cells->read(x , y+1);
+            neigh += cells->read(x , y-1);
+
+            neigh += cells->read((x + 1) , (y + 1));
+            neigh += cells->read((x + 1) , y);
+            neigh += cells->read((x + 1) , y-1);
+            neigh += cells->read((x - 1) , y+1);
+            neigh += cells->read((x - 1) , y);
+            neigh += cells->read((x - 1) , y-1);
+            
+            if (cells->read(x , y)) {
                 if (neigh == 2 || neigh == 3) {
-                    outcells[x * N + y] = 1;
+                    outcells->write(x, y, 1);
                 } else {
-                    outcells[x * N + y] = 0;
+                    outcells->write(x, y, 0);
                 }
             } else {
                 if (neigh == 3) {
-                    outcells[x * N + y] = 1;
+                    outcells->write(x, y, 1);
                 } else {
-                    outcells[x * N + y] = 0;
+                    outcells->write(x, y, 0);
                 }
             }
         }
     }
     std::swap(cells, outcells);
+
+
 }
+
+
 
 void showinfo() {
     int rightbound = std::numeric_limits<int>::min();
@@ -104,7 +226,7 @@ void showinfo() {
 #pragma omp parallel for collapse(2) reduction(max:rightbound) reduction(min:leftbound) reduction(+:count)
     for (int x = 0; x < N; x++) {
         for (int y = 0; y < N; y++) {
-            if (cells[x * N + y]) {
+            if (cells->read(x , y)) {
                 rightbound = std::max(rightbound, y);
                 leftbound = std::min(leftbound, y);
                 count++;
@@ -123,10 +245,12 @@ int main() {
     init(N / 2 + 500, N / 2 + 500);
     init(N / 2 - 1000, N / 2 - 1000);
     init(N / 2 + 1000, N / 2 + 1000);
+    printf("init is ok\n");
     for (int times = 0; times < 800; times++) {
         printf("step %d\n", times);
         if (times % 100 == 0)
             showinfo();
+        
         step();
     }
     showinfo();
